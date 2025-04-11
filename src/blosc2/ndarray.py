@@ -3772,7 +3772,7 @@ def matmul(x1: NDArray, x2: NDArray, **kwargs: Any) -> NDArray:
     return result.squeeze()
 
 
-def transpose(x, **kwargs: Any) -> NDArray:
+def transpose(x, axes: int | tuple[int] | None = None, **kwargs: Any) -> NDArray:
     """
     Returns a Blosc2 NDArray with axes transposed.
 
@@ -3780,6 +3780,8 @@ def transpose(x, **kwargs: Any) -> NDArray:
     ----------
     x: :ref:`NDArray`
         The input array.
+    axes:
+        The axes along which to transpose.
     kwargs: Any, optional
         Keyword arguments that are supported by the :func:`empty` constructor.
 
@@ -3793,24 +3795,52 @@ def transpose(x, **kwargs: Any) -> NDArray:
     `numpy.transpose <https://numpy.org/doc/2.2/reference/generated/numpy.transpose.html>`_
     """
 
-    # If arguments are dimension < 2 they are returned
+    # Escalares o vectores son devueltos igual
     if np.isscalar(x) or x.ndim < 2:
         return x
 
-    # Validate arguments are dimension 2
-    if x.ndim > 2:
-        raise ValueError("Transposing arrays with dimension greater than 2 is not supported yet.")
+    # Validar o generar permutación
+    if axes is None:
+        axes = range(x.ndim)[::-1]
+    else:
+        if sorted(axes) != list(range(x.ndim)):
+            raise ValueError(f"axes {axes} is not a valid permutation of {x.ndim} dimensions")
 
-    n, m = x.shape
-    p, q = x.chunks
-    result = blosc2.zeros((m, n), dtype=np.result_type(x), **kwargs)
+    new_shape = tuple(x.shape[axis] for axis in axes)
+    if "chunks" not in kwargs:
+        kwargs["chunks"] = tuple(x.chunks[axis] for axis in axes)
 
-    for row in range(0, n, p):
-        row_end = (row + p) if (row + p) < n else n
-        for col in range(0, m, q):
-            col_end = (col + q) if (col + q) < m else m
-            aux = x[row:row_end, col:col_end]
-            result[col:col_end, row:row_end] = np.transpose(aux).copy()
+    result = blosc2.empty(shape=new_shape, dtype=np.result_type(x), **kwargs)
+
+    # Crear slices por dimensión
+    chunk_slices = [
+        [slice(start, builtins.min(dim, start + chunk)) for start in range(0, dim, chunk)]
+        for dim, chunk in zip(x.shape, x.chunks, strict=False)
+    ]
+
+    # Para cada dimensión, definir los slices correspondientes a cada bloque
+    # chunk_slices = []
+    # for dim, chunk in zip(x.shape, x.chunks):
+    #     slices_axis = []
+    #     for start in range(0, dim, chunk):
+    #         end = builtins.min(dim, start + chunk)
+    #         slices_axis.append(slice(start, end))
+    #     chunk_slices.append(slices_axis)
+
+    # Cálculo del número de bloques por eje
+    block_counts = [len(s) for s in chunk_slices]
+    grid = np.indices(block_counts).reshape(len(block_counts), -1).T
+
+    # Recorremos los índices y accedemos a los bloques correspondientes
+    for idx in grid:
+        block_slices = tuple(chunk_slices[axis][i] for axis, i in enumerate(idx))
+        block = x[block_slices]
+
+        # Usamos la permutación para la transposición
+        target_slices = tuple(block_slices[axis] for axis in axes)
+
+        # Aseguramos que los datos sean copiados después de la transposición
+        result[target_slices] = np.transpose(block, axes=axes).copy()
 
     return result
 

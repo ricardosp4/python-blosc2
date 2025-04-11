@@ -1,3 +1,5 @@
+from itertools import permutations
+
 import numpy as np
 import pytest
 
@@ -6,15 +8,46 @@ import blosc2
 
 @pytest.fixture(
     params=[
-        ((3, 3), (2, 2), (1, 1)),
-        ((12, 11), (7, 5), (6, 2)),
-        ((1, 5), (1, 4), (1, 3)),
-        ((51, 603), (22, 99), (13, 29)),
         ((10,), (5,), None),
         ((31,), (14,), (9,)),
     ]
 )
-def shape_chunks_blocks(request):
+def shape_1d_chunks_blocks(request):
+    return request.param
+
+
+@pytest.fixture(
+    params=[
+        ((3, 3), (2, 2), (1, 1)),
+        ((12, 11), (7, 5), (6, 2)),
+        ((1, 5), (1, 4), (1, 3)),
+        ((51, 603), (22, 99), (13, 29)),
+    ]
+)
+def shape_2d_chunks_blocks(request):
+    return request.param
+
+
+@pytest.fixture(
+    params=[
+        ((3, 3, 3), (2, 2, 2), (1, 1, 1)),
+        ((4, 5, 2), (3, 4, 2), (3, 2, 1)),
+        ((12, 10, 10), (11, 9, 7), (9, 7, 3)),
+    ]
+)
+def shape_3d_chunks_blocks(request):
+    return request.param
+
+
+@pytest.fixture(
+    params=[
+        ((3, 3, 3, 7), (2, 2, 2, 4), (1, 1, 1, 4)),
+        ((4, 6, 5, 2), (3, 3, 4, 2), (3, 2, 2, 1)),
+        ((10, 10, 10, 11), (7, 8, 9, 11), (6, 7, 8, 5)),
+        ((55, 45, 53, 52), None, None),
+    ]
+)
+def shape_4d_chunks_blocks(request):
     return request.param
 
 
@@ -22,8 +55,8 @@ def shape_chunks_blocks(request):
     "dtype",
     {np.int32, np.int64, np.float32, np.float64},
 )
-def test_transpose(shape_chunks_blocks, dtype):
-    shape, chunks, blocks = shape_chunks_blocks
+def test_1d_transpose(shape_1d_chunks_blocks, dtype):
+    shape, chunks, blocks = shape_1d_chunks_blocks
     a = blosc2.linspace(0, 1, shape=shape, chunks=chunks, blocks=blocks, dtype=dtype)
     at = blosc2.transpose(a)
 
@@ -35,13 +68,70 @@ def test_transpose(shape_chunks_blocks, dtype):
 
 @pytest.mark.parametrize(
     "dtype",
+    {np.int32, np.int64, np.float32, np.float64},
+)
+@pytest.mark.parametrize(
+    "axes",
+    list(permutations([0, 1])),
+)
+def test_2d_transpose(shape_2d_chunks_blocks, dtype, axes):
+    shape, chunks, blocks = shape_2d_chunks_blocks
+    a = blosc2.linspace(0, 1, shape=shape, chunks=chunks, blocks=blocks, dtype=dtype)
+    at = blosc2.transpose(a, axes=axes)
+
+    na = a[:]
+    nat = np.transpose(na, axes=axes)
+
+    np.testing.assert_allclose(at, nat)
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    {np.int32, np.int64, np.float32, np.float64},
+)
+@pytest.mark.parametrize(
+    "axes",
+    list(permutations([0, 1, 2])),
+)
+def test_3d_transpose(shape_3d_chunks_blocks, dtype, axes):
+    shape, chunks, blocks = shape_3d_chunks_blocks
+    a = blosc2.linspace(0, 1, shape=shape, chunks=chunks, blocks=blocks, dtype=dtype)
+    at = blosc2.transpose(a, axes=axes)
+
+    na = a[:]
+    nat = np.transpose(na, axes=axes)
+
+    np.testing.assert_allclose(at, nat)
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    {np.int32, np.int64, np.float32, np.float64},
+)
+@pytest.mark.parametrize(
+    "axes",
+    list(permutations([0, 1, 2, 3])),
+)
+def test_4d_transpose(shape_4d_chunks_blocks, dtype, axes):
+    shape, chunks, blocks = shape_4d_chunks_blocks
+    a = blosc2.linspace(0, 1, shape=shape, chunks=chunks, blocks=blocks, dtype=dtype)
+    at = blosc2.transpose(a, axes=axes)
+
+    na = a[:]
+    nat = np.transpose(na, axes=axes)
+
+    np.testing.assert_allclose(at, nat)
+
+
+@pytest.mark.parametrize(
+    "dtype",
     {np.complex64, np.complex128},
 )
-def test_complex(shape_chunks_blocks, dtype):
-    shape, chunks, blocks = shape_chunks_blocks
+def test_complex(shape_3d_chunks_blocks, dtype):
+    shape, chunks, blocks = shape_3d_chunks_blocks
     real_part = blosc2.linspace(0, 1, shape=shape, chunks=chunks, blocks=blocks, dtype=dtype)
     imag_part = blosc2.linspace(1, 0, shape=shape, chunks=chunks, blocks=blocks, dtype=dtype)
-    complex_matrix = real_part + 1j * imag_part
+    complex_matrix = real_part + 3j * imag_part
 
     a = blosc2.asarray(complex_matrix)
     at = blosc2.transpose(a)
@@ -75,20 +165,20 @@ def test_scalars(scalar):
     np.testing.assert_allclose(at, nat)
 
 
-@pytest.mark.parametrize(
-    "shape",
-    [
-        (3, 3, 3),
-        (12, 10, 10),
-        (10, 10, 10, 11),
-        (5, 4, 3, 2, 1, 1),
-    ],
-)
-def test_dims(shape):
-    a = blosc2.linspace(0, 1, shape=shape)
-
-    with pytest.raises(ValueError):
-        blosc2.transpose(a)
+# @pytest.mark.parametrize(
+#     "shape",
+#     [
+#         (3, 3, 3),
+#         (12, 10, 10),
+#         (10, 10, 10, 11),
+#         (5, 4, 3, 2, 1, 1),
+#     ],
+# )
+# def test_dims(shape):
+#     a = blosc2.linspace(0, 1, shape=shape)
+#
+#     with pytest.raises(ValueError):
+#         blosc2.transpose(a)
 
 
 def test_disk():
